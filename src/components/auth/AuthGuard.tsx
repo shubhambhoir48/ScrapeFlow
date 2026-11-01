@@ -233,3 +233,4 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   // 4. Authenticated & Whitelisted: Allow full access
   return <>{children}</>;
 }
+

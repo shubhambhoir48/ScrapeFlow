@@ -17,3 +17,4 @@ export default function LoginPage() {
 
   return <AuthGuard>{null}</AuthGuard>;
 }
+

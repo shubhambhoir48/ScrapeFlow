@@ -13,6 +13,7 @@ import {
   Cpu,
   Settings,
   Sparkles,
+  Target,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +21,7 @@ const navigationGroups = [
   {
     title: "Data Engines & Scrapers",
     items: [
+      { name: "Omni-Channel Scraper", href: "/omni-scraper", icon: Target, badge: "360°" },
       { name: "Directory Scraper", href: "/campaigns", icon: Layers, badge: "B2B" },
       { name: "Google Maps Scraper", href: "/maps-scraper", icon: MapPin, badge: "Local" },
       { name: "Social Media Scraper", href: "/social-scraper", icon: Share2, badge: "NEW" },
