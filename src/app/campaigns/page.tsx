@@ -6,6 +6,8 @@ import {
   Layers,
   PlusCircle,
   Play,
+  Pause,
+  ArrowLeft,
   RotateCw,
   CheckCircle2,
   AlertCircle,
@@ -119,8 +121,49 @@ export default function CampaignsPage() {
     companyInfoUrl: true,
   });
 
-  // Open View Modal / Drawer
+  // Open View Full-Page State
   const [selectedCampaign, setSelectedCampaign] = useState<ScrapingCampaign | null>(null);
+  const [inViewSearch, setInViewSearch] = useState("");
+  const [filterPhoneOnly, setFilterPhoneOnly] = useState(false);
+  const [filterEmailOnly, setFilterEmailOnly] = useState(false);
+  const [telemetryCollapsed, setTelemetryCollapsed] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+
+  async function handleResumeCampaign(id: string) {
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/campaigns/${id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resume" }),
+      });
+      const data = await res.json();
+      if (data.campaign) setSelectedCampaign(data.campaign);
+      fetchCampaigns();
+    } catch (err: any) {
+      alert(`Resume failed: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handlePauseCampaign(id: string) {
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/campaigns/${id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "pause" }),
+      });
+      const data = await res.json();
+      if (data.campaign) setSelectedCampaign(data.campaign);
+      fetchCampaigns();
+    } catch (err: any) {
+      alert(`Pause failed: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  }
 
   async function fetchCampaigns() {
     try {
@@ -310,6 +353,456 @@ export default function CampaignsPage() {
 
   const runningCount = campaigns.filter((c) => c.status === "RUNNING").length;
   const totalExtracted = campaigns.reduce((acc, c) => acc + (c.successCount || c.extractedRecords?.length || 0), 0);
+
+  // FULL-PAGE DEDICATED OPEN VIEW: Display live progress on top and all captured records below in table format
+  if (selectedCampaign) {
+    const records = selectedCampaign.extractedRecords || [];
+    const filteredRecords = records.filter((r) => {
+      const s = inViewSearch.toLowerCase();
+      const matchesSearch =
+        !s ||
+        (r.companyName && r.companyName.toLowerCase().includes(s)) ||
+        (r.name && r.name.toLowerCase().includes(s)) ||
+        (r.contactPerson && r.contactPerson.toLowerCase().includes(s)) ||
+        (r.designation && r.designation.toLowerCase().includes(s)) ||
+        (r.city && r.city.toLowerCase().includes(s)) ||
+        (r.phone && r.phone.toLowerCase().includes(s)) ||
+        (r.email && r.email.toLowerCase().includes(s));
+
+      const matchesPhone = !filterPhoneOnly || Boolean(r.phone && !r.phone.includes("Protected"));
+      const matchesEmail = !filterEmailOnly || Boolean(r.email);
+
+      return matchesSearch && matchesPhone && matchesEmail;
+    });
+
+    const phoneCount = records.filter((r) => r.phone && !r.phone.includes("Protected")).length;
+    const emailCount = records.filter((r) => Boolean(r.email)).length;
+    const leadersCount = records.filter((r) => r.contactPerson && r.contactPerson !== "Key Decision Maker").length;
+
+    return (
+      <div className="space-y-6 max-w-7xl mx-auto select-none pb-12 animate-in fade-in-50 duration-150">
+        {/* Top Breadcrumb Navigation & Action Bar */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-4">
+          <div className="space-y-1">
+            <button
+              onClick={() => setSelectedCampaign(null)}
+              className="text-xs text-muted-foreground hover:text-foreground font-semibold flex items-center gap-1.5 transition-colors mb-1 group"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
+              <span>Back to All Campaigns Fleet</span>
+            </button>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-xl font-bold tracking-tight text-foreground flex items-center gap-2">
+                <Layers className="w-5 h-5 text-blue-600" />
+                {selectedCampaign.name}
+              </h1>
+              <span
+                className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full uppercase flex items-center gap-1.5 ${
+                  selectedCampaign.status === "RUNNING"
+                    ? "bg-blue-500/10 text-blue-600 border border-blue-500/20 animate-pulse"
+                    : selectedCampaign.status === "COMPLETED"
+                    ? "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20"
+                    : selectedCampaign.status === "PAUSED"
+                    ? "bg-amber-500/10 text-amber-600 border border-amber-500/20"
+                    : "bg-red-500/10 text-red-600 border border-red-500/20"
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    selectedCampaign.status === "RUNNING"
+                      ? "bg-blue-500 animate-ping"
+                      : selectedCampaign.status === "COMPLETED"
+                      ? "bg-emerald-500"
+                      : "bg-amber-500"
+                  }`}
+                />
+                {selectedCampaign.status}
+              </span>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                {selectedCampaign.crawlDepth || "LEVEL_2_LISTINGS"}
+              </span>
+              {selectedCampaign.isUnlimited && (
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-600 border border-purple-500/20">
+                  ♾️ UNLIMITED MODE
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground font-mono flex items-center gap-2 mt-0.5">
+              <span>Target: {selectedCampaign.targetUrls.join(", ")}</span>
+              {selectedCampaign.targetUrls[0] && (
+                <a
+                  href={selectedCampaign.targetUrls[0]}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:underline flex items-center gap-0.5"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Resume / Pause Controls */}
+            {selectedCampaign.status === "RUNNING" ? (
+              <button
+                type="button"
+                onClick={() => handlePauseCampaign(selectedCampaign.id!)}
+                disabled={actionLoading}
+                className="px-3.5 py-2 text-xs font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 rounded-xl flex items-center gap-1.5 shadow-sm transition-all"
+              >
+                <Pause className="w-3.5 h-3.5 fill-current" />
+                <span>Pause Crawl</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleResumeCampaign(selectedCampaign.id!)}
+                disabled={actionLoading}
+                className="px-3.5 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-md shadow-blue-500/20 flex items-center gap-1.5 transition-all"
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span>Resume Crawl</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => exportCampaignCSV(selectedCampaign)}
+              className="px-3.5 py-2 text-xs font-semibold bg-card hover:bg-muted border border-border rounded-xl text-foreground flex items-center gap-1.5 shadow-sm transition-all"
+            >
+              <Download className="w-3.5 h-3.5 text-muted-foreground" />
+              <span>Export CSV</span>
+            </button>
+
+            <Link
+              href="/data-explorer"
+              className="px-3.5 py-2 text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 rounded-xl flex items-center gap-1.5 shadow-sm transition-all"
+            >
+              <Database className="w-3.5 h-3.5" />
+              <span>Central CRM Database</span>
+            </Link>
+          </div>
+        </div>
+
+        {/* Top Progress & Telemetry Metric Cards */}
+        <div className="p-5 bg-card border border-border rounded-2xl shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <span className="text-xs font-bold text-foreground">
+                Live Crawl Progress ({selectedCampaign.progress}%)
+              </span>
+              <span className="text-[11px] text-muted-foreground ml-2 font-mono">
+                {selectedCampaign.checkpoint?.totalPathways
+                  ? `Pathway ${selectedCampaign.checkpoint.lastPathwayIndex ? selectedCampaign.checkpoint.lastPathwayIndex + 1 : 1}/${selectedCampaign.checkpoint.totalPathways}`
+                  : selectedCampaign.status === "RUNNING"
+                  ? "Crawling pathways & unmasking records..."
+                  : "Harvest complete"}
+              </span>
+            </div>
+            <span className="text-xs font-mono font-bold text-blue-600 dark:text-blue-400">
+              {records.length} records captured in real-time
+            </span>
+          </div>
+
+          <div className="w-full bg-muted rounded-full h-2.5 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-300 ${
+                selectedCampaign.status === "COMPLETED"
+                  ? "bg-emerald-500"
+                  : selectedCampaign.status === "PAUSED"
+                  ? "bg-amber-500"
+                  : "bg-blue-600"
+              }`}
+              style={{ width: `${Math.max(5, selectedCampaign.progress)}%` }}
+            />
+          </div>
+
+          {/* 4 Metric Telemetry Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2">
+            <div className="p-3 bg-muted/40 border border-border rounded-xl">
+              <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider block">
+                Companies Captured
+              </span>
+              <span className="text-lg font-bold text-foreground font-mono mt-0.5 block">
+                {records.length}
+              </span>
+              <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
+                <CheckCircle2 className="w-3 h-3" /> Live streaming
+              </span>
+            </div>
+
+            <div className="p-3 bg-muted/40 border border-border rounded-xl">
+              <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider block">
+                Decision Makers
+              </span>
+              <span className="text-lg font-bold text-foreground font-mono mt-0.5 block">
+                {leadersCount}
+              </span>
+              <span className="text-[10px] text-muted-foreground mt-0.5 block">
+                Directors, MDs & C-Suite
+              </span>
+            </div>
+
+            <div className="p-3 bg-muted/40 border border-border rounded-xl">
+              <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider block">
+                Phones & WhatsApp
+              </span>
+              <span className="text-lg font-bold text-emerald-600 font-mono mt-0.5 block">
+                {phoneCount}
+              </span>
+              <span className="text-[10px] text-emerald-600 font-semibold mt-0.5 block">
+                Unmasked direct lines
+              </span>
+            </div>
+
+            <div className="p-3 bg-muted/40 border border-border rounded-xl">
+              <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider block">
+                Corporate Emails
+              </span>
+              <span className="text-lg font-bold text-blue-600 font-mono mt-0.5 block">
+                {emailCount}
+              </span>
+              <span className="text-[10px] text-blue-600 font-semibold mt-0.5 block">
+                MX verified mailboxes
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Captured Data Live Table Section */}
+        <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden space-y-3">
+          {/* Table Toolbar */}
+          <div className="p-4 border-b border-border flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="relative w-full sm:w-96">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-3 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search captured records by company, person, city, phone..."
+                value={inViewSearch}
+                onChange={(e) => setInViewSearch(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 bg-muted/40 border border-border rounded-xl text-xs focus:ring-1 focus:ring-blue-600"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 self-start sm:self-auto">
+              <label className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-xs cursor-pointer hover:bg-muted/40">
+                <input
+                  type="checkbox"
+                  checked={filterPhoneOnly}
+                  onChange={(e) => setFilterPhoneOnly(e.target.checked)}
+                  className="rounded text-blue-600"
+                />
+                <span className="text-[11px] font-semibold text-foreground">Has Phone</span>
+              </label>
+
+              <label className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-xs cursor-pointer hover:bg-muted/40">
+                <input
+                  type="checkbox"
+                  checked={filterEmailOnly}
+                  onChange={(e) => setFilterEmailOnly(e.target.checked)}
+                  className="rounded text-blue-600"
+                />
+                <span className="text-[11px] font-semibold text-foreground">Has Email</span>
+              </label>
+
+              <span className="text-xs text-muted-foreground font-mono pl-2">
+                Showing {filteredRecords.length} of {records.length} records
+              </span>
+            </div>
+          </div>
+
+          {/* High-Density Full-Width Data Table */}
+          {records.length === 0 ? (
+            <div className="py-20 text-center text-xs text-muted-foreground bg-muted/10">
+              {selectedCampaign.status === "RUNNING" ? (
+                <div className="flex flex-col items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-600">
+                    <RotateCw className="w-5 h-5 animate-spin" />
+                  </div>
+                  <div>
+                    <span className="font-bold text-foreground text-sm block">
+                      Playwright Stealth Worker is Initializing Session
+                    </span>
+                    <span className="text-xs text-muted-foreground mt-0.5 block max-w-md">
+                      Crawling directory categories and unmasking internal company cards. Data will start streaming into this table live every few seconds.
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <span>No records extracted for this campaign.</span>
+              )}
+            </div>
+          ) : (
+            <div className="overflow-x-auto min-h-[380px] max-h-[600px] border-b border-border">
+              <table className="w-full text-xs text-left border-collapse">
+                <thead className="bg-muted/80 text-muted-foreground uppercase text-[10px] font-bold sticky top-0 z-10 backdrop-blur-sm border-b border-border">
+                  <tr>
+                    <th className="px-3 py-2.5 w-12 text-center">#</th>
+                    <th className="px-4 py-2.5 min-w-[200px]">Company Name</th>
+                    <th className="px-4 py-2.5 min-w-[180px]">Decision Maker & Role</th>
+                    <th className="px-4 py-2.5 min-w-[160px]">Phone / Mobile</th>
+                    <th className="px-4 py-2.5 min-w-[180px]">Corporate Email</th>
+                    <th className="px-4 py-2.5 min-w-[220px]">Factory / Office Address</th>
+                    <th className="px-4 py-2.5 min-w-[180px]">Products & Focus</th>
+                    <th className="px-3 py-2.5 w-16 text-center">Profile</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border text-[11px]">
+                  {filteredRecords.map((r, i) => (
+                    <tr key={i} className="hover:bg-muted/40 transition-colors">
+                      <td className="px-3 py-2.5 text-center text-muted-foreground font-mono text-[10px]">
+                        {i + 1}
+                      </td>
+
+                      {/* Company Name */}
+                      <td className="px-4 py-2.5 font-bold text-foreground">
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate max-w-[200px]" title={r.companyName || r.name}>
+                            {r.companyName || r.name || "-"}
+                          </span>
+                          {(r.websiteUrl || r.website) && (
+                            <a
+                              href={r.websiteUrl || r.website}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-muted-foreground hover:text-blue-600"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Decision Maker & Designation */}
+                      <td className="px-4 py-2.5">
+                        <span className="font-semibold text-foreground block truncate max-w-[160px]">
+                          {r.contactPerson || "Executive Leadership"}
+                        </span>
+                        {r.designation && (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 inline-block mt-0.5">
+                            {r.designation}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Phone */}
+                      <td className="px-4 py-2.5 font-mono text-xs">
+                        {r.phone ? (
+                          <span
+                            className={
+                              r.phone.includes("Protected")
+                                ? "text-amber-600 dark:text-amber-400 text-[10px]"
+                                : "text-emerald-600 font-bold"
+                            }
+                          >
+                            {r.phone}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </td>
+
+                      {/* Corporate Email */}
+                      <td className="px-4 py-2.5 font-mono text-xs">
+                        {r.email ? (
+                          <span className="text-blue-600 dark:text-blue-400 font-semibold truncate block max-w-[170px]" title={r.email}>
+                            {r.email}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </td>
+
+                      {/* Factory / Office Address */}
+                      <td className="px-4 py-2.5 text-muted-foreground">
+                        <span className="truncate block max-w-[220px]" title={r.fullAddress || r.address}>
+                          {r.fullAddress || r.address || "Maharashtra, India"}
+                        </span>
+                      </td>
+
+                      {/* Products */}
+                      <td className="px-4 py-2.5 text-muted-foreground">
+                        <span className="truncate block max-w-[180px]" title={r.products}>
+                          {r.products || "-"}
+                        </span>
+                      </td>
+
+                      {/* Profile Link */}
+                      <td className="px-3 py-2.5 text-center">
+                        {r.companyInfoUrl || r.link ? (
+                          <a
+                            href={r.companyInfoUrl || r.link}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-0.5 text-blue-600 hover:underline font-semibold text-[10px]"
+                          >
+                            View <ExternalLink className="w-2.5 h-2.5" />
+                          </a>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Real-Time Crawler Telemetry Terminal */}
+          <div className="p-4 bg-slate-950 text-slate-200 rounded-b-2xl font-mono text-xs space-y-2">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <span className="text-xs font-bold text-slate-300 flex items-center gap-2">
+                <Terminal className="w-3.5 h-3.5 text-blue-400" />
+                Live Crawler Execution Telemetry
+              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] text-emerald-400 font-bold">
+                  STATUS: {selectedCampaign.status}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setTelemetryCollapsed(!telemetryCollapsed)}
+                  className="text-[10px] text-slate-400 hover:text-white"
+                >
+                  {telemetryCollapsed ? "Expand Log ▲" : "Collapse Log ▼"}
+                </button>
+              </div>
+            </div>
+
+            {!telemetryCollapsed && (
+              <div className="max-h-48 overflow-y-auto space-y-1 text-[11px] pr-2">
+                {!selectedCampaign.logs || selectedCampaign.logs.length === 0 ? (
+                  <div className="text-slate-600 italic">Waiting for crawler telemetry...</div>
+                ) : (
+                  selectedCampaign.logs.map((log, i) => (
+                    <div key={i} className="leading-snug">
+                      <span className="text-slate-500">[{log.timestamp.slice(11, 19)}]</span>{" "}
+                      <span
+                        className={
+                          log.level === "success"
+                            ? "text-emerald-400 font-bold"
+                            : log.level === "error"
+                            ? "text-red-400 font-bold"
+                            : log.level === "warn"
+                            ? "text-amber-400 font-bold"
+                            : "text-blue-400 font-bold"
+                        }
+                      >
+                        [{log.level.toUpperCase()}]
+                      </span>{" "}
+                      <span className="text-slate-300">{log.message}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -1059,241 +1552,7 @@ export default function CampaignsPage() {
         </div>
       )}
 
-      {/* OPEN VIEW DRAWER / MODAL: Campaign Live Details & Records */}
-      {selectedCampaign && (
-        <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setSelectedCampaign(null);
-          }}
-        >
-          <div className="bg-card border border-border rounded-2xl max-w-5xl w-full p-6 shadow-2xl space-y-4 max-h-[92vh] flex flex-col">
-            {/* Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-border">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="font-bold text-base text-foreground">{selectedCampaign.name}</h3>
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                      selectedCampaign.status === "RUNNING"
-                        ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 animate-pulse"
-                        : selectedCampaign.status === "COMPLETED"
-                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
-                        : "bg-muted text-muted-foreground"
-                    }`}
-                  >
-                    {selectedCampaign.status}
-                  </span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-muted text-muted-foreground border border-border">
-                    {selectedCampaign.crawlDepth || "LEVEL_2_LISTINGS"}
-                  </span>
-                </div>
-                <p className="text-xs text-muted-foreground font-mono mt-0.5 truncate max-w-lg">
-                  Target: {selectedCampaign.targetUrls.join(", ")}
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => exportCampaignCSV(selectedCampaign)}
-                  className="px-3 py-1.5 bg-card hover:bg-muted border border-border text-xs font-semibold rounded-lg flex items-center gap-1.5 shadow-sm"
-                >
-                  <Download className="w-3.5 h-3.5" /> Export CSV
-                </button>
-                <button
-                  onClick={() => setSelectedCampaign(null)}
-                  className="px-3 py-1.5 bg-muted hover:bg-muted/80 text-foreground font-bold text-xs rounded-lg border border-border flex items-center gap-1.5 transition-all shadow-sm"
-                >
-                  ✕ Close View <span className="text-[10px] text-muted-foreground font-mono font-normal">(Esc)</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Live Progress Bar */}
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>Progress: {selectedCampaign.progress}%</span>
-                <span>
-                  Extracted: {selectedCampaign.extractedRecords?.length || selectedCampaign.successCount || 0} items
-                </span>
-              </div>
-              <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
-                <div
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${selectedCampaign.progress}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Extracted Records Table */}
-            <div className="flex-1 overflow-y-auto space-y-3 min-h-[220px]">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Extracted Structured Records ({selectedCampaign.extractedRecords?.length || 0})
-                </h4>
-                <span className="text-[11px] text-muted-foreground">
-                  De-obfuscated decision makers & verified factory addresses
-                </span>
-              </div>
-
-              {!selectedCampaign.extractedRecords || selectedCampaign.extractedRecords.length === 0 ? (
-                <div className="py-12 text-center text-xs text-muted-foreground bg-muted/20 rounded-xl border border-dashed border-border">
-                  {selectedCampaign.status === "RUNNING" ? (
-                    <div className="flex flex-col items-center gap-2">
-                      <RotateCw className="w-5 h-5 text-blue-600 animate-spin" />
-                      <span>Playwright Stealth worker is executing multi-level crawling & unmasking...</span>
-                    </div>
-                  ) : (
-                    <span>No records extracted yet.</span>
-                  )}
-                </div>
-              ) : (
-                <div className="border border-border rounded-xl overflow-x-auto max-h-72">
-                  <table className="w-full text-xs text-left">
-                    <thead className="bg-muted text-muted-foreground uppercase text-[10px] font-semibold sticky top-0">
-                      <tr>
-                        <th className="px-3 py-2">Company Name</th>
-                        <th className="px-3 py-2">Decision Maker & Role</th>
-                        <th className="px-3 py-2">Phone / Mobile</th>
-                        <th className="px-3 py-2">Email</th>
-                        <th className="px-3 py-2">Address & Location</th>
-                        <th className="px-3 py-2">Products</th>
-                        <th className="px-3 py-2">Profile</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border text-[11px]">
-                      {selectedCampaign.extractedRecords.map((r, i) => (
-                        <tr key={i} className="hover:bg-muted/30">
-                          {/* Company Name */}
-                          <td className="px-3 py-2 font-bold text-foreground">
-                            {r.companyName || r.name || "-"}
-                          </td>
-
-                          {/* Contact Person & Designation */}
-                          <td className="px-3 py-2">
-                            <span className="font-semibold text-foreground block">
-                              {r.contactPerson || "-"}
-                            </span>
-                            {r.designation && (
-                              <span className="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                                {r.designation}
-                              </span>
-                            )}
-                          </td>
-
-                          {/* Phone */}
-                          <td className="px-3 py-2 font-mono text-muted-foreground">
-                            {r.phone ? (
-                              <span className={r.phone.includes("Protected") ? "text-amber-600 dark:text-amber-400 text-[10px]" : "text-foreground font-semibold"}>
-                                {r.phone}
-                              </span>
-                            ) : (
-                              "-"
-                            )}
-                          </td>
-
-                          {/* Email */}
-                          <td className="px-3 py-2 font-mono text-blue-600">
-                            {r.email || "-"}
-                          </td>
-
-                          {/* Address */}
-                          <td className="px-3 py-2 text-muted-foreground truncate max-w-[200px]" title={r.fullAddress || r.address}>
-                            {r.fullAddress || r.address || "-"}
-                          </td>
-
-                          {/* Products */}
-                          <td className="px-3 py-2 text-muted-foreground truncate max-w-[160px]" title={r.products}>
-                            {r.products || "-"}
-                          </td>
-
-                          {/* Source Link */}
-                          <td className="px-3 py-2">
-                            {r.companyInfoUrl || r.link ? (
-                              <a
-                                href={r.companyInfoUrl || r.link}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-blue-600 hover:underline flex items-center gap-0.5"
-                              >
-                                View <ExternalLink className="w-2.5 h-2.5" />
-                              </a>
-                            ) : (
-                              "-"
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {/* Live Worker Logs */}
-              <div className="space-y-1.5 pt-2">
-                <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
-                  <Terminal className="w-3.5 h-3.5 text-blue-600" /> Real-Time Crawler Telemetry Stream
-                </span>
-                <div className="bg-zinc-950 text-zinc-300 p-3 rounded-xl font-mono text-[11px] max-h-36 overflow-y-auto space-y-1 border border-zinc-800">
-                  {!selectedCampaign.logs || selectedCampaign.logs.length === 0 ? (
-                    <div className="text-zinc-600 italic">Waiting for crawler telemetry...</div>
-                  ) : (
-                    selectedCampaign.logs.map((log, i) => (
-                      <div key={i} className="leading-relaxed">
-                        <span className="text-zinc-500">[{log.timestamp.slice(11, 19)}]</span>{" "}
-                        <span
-                          className={
-                            log.level === "success"
-                              ? "text-emerald-400 font-bold"
-                              : log.level === "error"
-                              ? "text-red-400 font-bold"
-                              : "text-blue-400"
-                          }
-                        >
-                          [{log.level.toUpperCase()}]
-                        </span>{" "}
-                        <span>{log.message}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Modal Bottom Footer */}
-            <div className="flex flex-col sm:flex-row items-center justify-between pt-3 border-t border-border gap-3 mt-auto shrink-0">
-              <div className="text-xs text-muted-foreground">
-                Extracted{" "}
-                <span className="font-bold text-foreground">
-                  {selectedCampaign.extractedRecords?.length || selectedCampaign.successCount || 0}
-                </span>{" "}
-                verified records. Central database auto-enrichment active in background.
-              </div>
-
-              <div className="flex items-center gap-2 self-end sm:self-auto">
-                <Link
-                  href="/data-explorer"
-                  className="px-3 py-1.5 bg-card hover:bg-muted border border-border text-xs font-semibold rounded-lg flex items-center gap-1.5 text-foreground transition-all"
-                >
-                  <Database className="w-3.5 h-3.5 text-blue-600" /> Explore Central Database
-                </Link>
-                <button
-                  onClick={() => exportCampaignCSV(selectedCampaign)}
-                  className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-semibold rounded-lg flex items-center gap-1.5 shadow-sm transition-all"
-                >
-                  <Download className="w-3.5 h-3.5" /> Export CSV
-                </button>
-                <button
-                  onClick={() => setSelectedCampaign(null)}
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-sm transition-all"
-                >
-                  Close View
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* New Campaign Creation Modal */}
     </div>
   );
 }

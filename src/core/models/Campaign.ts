@@ -63,6 +63,17 @@ export interface ScrapingCampaign {
   extractedRecords?: Record<string, any>[];
   logs?: Array<{ timestamp: string; level: "info" | "warn" | "error" | "success"; message: string }>;
 
+  // Resumability Checkpoint & Fault-Tolerance
+  checkpoint?: {
+    lastPathwayIndex?: number;
+    lastListingUrl?: string;
+    listingUrlsToCrawl?: string[];
+    totalPathways?: number;
+    lastPageNum?: number;
+    lastUpdated?: string;
+  };
+  isPaused?: boolean;
+
   createdAt: string;
   startedAt?: string;
   completedAt?: string;

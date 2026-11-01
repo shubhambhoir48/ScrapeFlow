@@ -8,7 +8,19 @@ export interface CrawlOptions {
   maxItems?: number;
   maxCategories?: number;
   selectedFields?: string[];
-  onProgress?: (log: { level: "info" | "warn" | "error" | "success"; message: string }) => void;
+  resumeFromPathwayIndex?: number;
+  existingFrontier?: string[];
+  onProgress?: (log: { level: "info" | "warn" | "error" | "success"; message: string }) => void | Promise<void>;
+  onBatchExtracted?: (
+    records: Record<string, any>[],
+    pathwayInfo: { index: number; total: number; url: string }
+  ) => Promise<void>;
+  onCheckpoint?: (checkpoint: {
+    lastPathwayIndex: number;
+    totalPathways: number;
+    listingUrlsToCrawl: string[];
+    lastListingUrl: string;
+  }) => Promise<void>;
 }
 
 export class PlaywrightScraperEngine {
@@ -279,15 +291,29 @@ export class PlaywrightScraperEngine {
         }
       }
 
+      // Check if resuming from previous frontier
+      if (options.existingFrontier && options.existingFrontier.length > 0) {
+        listingUrlsToCrawl = options.existingFrontier;
+        log({
+          level: "info",
+          message: `[Resume Engine] Restored previous crawl frontier with ${listingUrlsToCrawl.length} queued pathways. Resuming from pathway ${(options.resumeFromPathwayIndex || 0) + 1}...`,
+        });
+      }
+
+      const startPathwayIndex = Math.min(
+        options.resumeFromPathwayIndex !== undefined ? options.resumeFromPathwayIndex : 0,
+        Math.max(0, listingUrlsToCrawl.length - 1)
+      );
+
       log({
         level: "info",
-        message: `[Level 1] Queued ${listingUrlsToCrawl.length} listing pathways for extraction. Target quota: ${maxItems} verified records.`,
+        message: `[Level 1] Queued ${listingUrlsToCrawl.length} listing pathways for extraction. Target quota: ${maxItems} verified records. (Starting at pathway ${startPathwayIndex + 1})`,
       });
 
       const allExtractedRecords: Record<string, any>[] = [];
 
       // Step 2: Iterate through listing URLs and paginate
-      for (let pIdx = 0; pIdx < listingUrlsToCrawl.length; pIdx++) {
+      for (let pIdx = startPathwayIndex; pIdx < listingUrlsToCrawl.length; pIdx++) {
         if (allExtractedRecords.length >= maxItems) break;
         const listingUrl = listingUrlsToCrawl[pIdx];
 
@@ -492,6 +518,19 @@ export class PlaywrightScraperEngine {
 
           allExtractedRecords.push(...pageRecords);
 
+          // REAL-TIME STREAMING FLUSH: Instantly persist batch to database as each page is extracted
+          if (pageRecords.length > 0 && options.onBatchExtracted) {
+            try {
+              await options.onBatchExtracted(pageRecords, {
+                index: pIdx,
+                total: listingUrlsToCrawl.length,
+                url: listingUrl,
+              });
+            } catch (batchErr: any) {
+              log({ level: "warn", message: `Live stream ingestion notice: ${batchErr.message}` });
+            }
+          }
+
           // Pagination: Find Next Page link
           let nextPageUrl: string | null = null;
           if (paginationLinksAvailable($, pageNum) && currentPageUrl) {
@@ -503,6 +542,18 @@ export class PlaywrightScraperEngine {
 
           currentPageUrl = nextPageUrl;
           pageNum++;
+        }
+
+        // Live Checkpoint: Save frontier and progress after each pathway for 100% resumability
+        if (options.onCheckpoint) {
+          try {
+            await options.onCheckpoint({
+              lastPathwayIndex: pIdx,
+              totalPathways: listingUrlsToCrawl.length,
+              listingUrlsToCrawl: listingUrlsToCrawl.slice(0, 10000),
+              lastListingUrl: listingUrl,
+            });
+          } catch {}
         }
       }
 

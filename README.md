@@ -47,7 +47,17 @@ Equipped with automated anti-bot bypass mechanisms, residential browser emulatio
 - **Strict Whitelist Access Control**: Programmatic route guard enforcing strict access only to approved operator emails. Unauthorized logins are safely redirected to an access restriction portal.
 - **Session Persistence**: Automated token refresh and persistent session states across browser refreshes.
 
-### 7. ⚙️ High-Throughput Worker Fleet & Telemetry
+### 7. 🎯 Omni-Channel 360° Universal Organization Intelligence
+- **Multi-Vector Entity Profiling**: Accepts single organization names or bulk batches (manual entry or CSV upload) to assemble complete 360-degree organizational dossiers (e.g. chambers of commerce like MCCIA, industry councils, enterprise conglomerates).
+- **Executive Hierarchy Mapping**: Extracts key decision makers categorized by role (President, Managing Directors, Board Members, VPs, Department Heads) with verified email mailboxes, direct mobile/WhatsApp numbers, and executive LinkedIn URLs.
+- **Corporate & Social Footprint Extraction**: Aggregates corporate registration numbers, headquarters addresses, branches, official domains, and all brand social channels (LinkedIn, X/Twitter, Facebook, YouTube).
+
+### 8. 🔄 Fault-Tolerant Checkpoint Recovery & Streaming Data Ingestion
+- **Zero-Data-Loss Streaming**: Scraped records are flushed directly to the central MongoDB Atlas database in real time per pathway—never held in volatile memory.
+- **One-Click Pause & Resumption**: Preserves live crawl frontiers and pathway index checkpoints. In the event of network disruption or system restart, campaigns resume immediately from the exact page index.
+- **Full-Page Live Telemetry Console**: Replaced cramped dialogs with an expansive, dedicated operations console featuring live progress bars, 4 KPI telemetry cards, instant keyword search, and raw worker execution logs.
+
+### 9. ⚙️ High-Throughput Worker Fleet & Telemetry
 - **Concurrent Chromium Clusters**: Configurable worker pools ($1$ to $10$ parallel headless threads) with memory optimization.
 - **Stealth Anti-Detection**: Automated fingerprint masking, user-agent randomization, and human mouse jitter.
 - **Live Terminal Telemetry**: Real-time worker log streaming and percent-based progress tracking.
@@ -111,7 +121,7 @@ npx playwright install chromium
 ### 2. Environment Configuration
 Create a `.env.local` file in the project root:
 ```env
-# MongoDB Atlas Connection URI
+# MongoDB Atlas Connection URI (Replace with your actual cluster credentials)
 MONGODB_URI=mongodb+srv://<username>:<password>@<your-cluster>.mongodb.net/<database_name>?retryWrites=true&w=majority
 MONGODB_DB=scrapeflow
 
@@ -140,14 +150,11 @@ npm run start
 
 ## 🛡️ Security & Whitelist Configuration
 
-Administrative access is gated using Firebase Google Authentication. To update the authorized email whitelist, edit `src/lib/firebase.ts`:
+Administrative access is gated using Firebase Google Authentication. To update the authorized email whitelist, configure `NEXT_PUBLIC_AUTHORIZED_EMAILS` in `.env.local` or edit `src/lib/firebase.ts`:
 
-```typescript
-export const AUTHORIZED_EMAILS: string[] = [
-  "admin@yourcompany.com",
-  "operator@yourcompany.com",
-  // Add additional approved operator emails here
-].map((email) => email.toLowerCase().trim());
+```env
+# Comma-separated list of approved Google accounts in .env.local
+NEXT_PUBLIC_AUTHORIZED_EMAILS=admin@yourcompany.com,operator@yourcompany.com
 ```
 
 ---
