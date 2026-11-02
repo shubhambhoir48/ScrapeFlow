@@ -3,13 +3,13 @@ import { getAuth, GoogleAuthProvider } from "firebase/auth";
 
 // ScrapeFlow Firebase Web SDK configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyCqfSv0c4FIuuYzR80yHZzIsIP54xZh4Pk",
-  authDomain: "scrapeflow-dce79.firebaseapp.com",
-  projectId: "scrapeflow-dce79",
-  storageBucket: "scrapeflow-dce79.firebasestorage.app",
-  messagingSenderId: "641765762176",
-  appId: "1:641765762176:web:e8167b9785c94bb9257265",
-  measurementId: "G-913TMW61ZV",
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyCqfSv0c4FIuuYzR80yHZzIsIP54xZh4Pk",
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "scrapeflow-dce79.firebaseapp.com",
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "scrapeflow-dce79",
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "scrapeflow-dce79.firebasestorage.app",
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "641765762176",
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:641765762176:web:e8167b9785c94bb9257265",
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID || "G-913TMW61ZV",
 };
 
 // Initialize Firebase as a robust singleton across SSR and client navigation
@@ -36,4 +36,3 @@ export function isEmailWhitelisted(email?: string | null): boolean {
   if (AUTHORIZED_EMAILS.includes("*")) return true;
   return AUTHORIZED_EMAILS.includes(email.toLowerCase().trim());
 }
-
