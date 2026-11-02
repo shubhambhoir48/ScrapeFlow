@@ -20,6 +20,14 @@ declare const global: MongoGlobal & typeof globalThis;
 let clientPromise: Promise<MongoClient> | null = null;
 let isConnected = false;
 
+const MONGO_OPTIONS = {
+  maxPoolSize: 10,
+  minPoolSize: 1,
+  maxIdleTimeMS: 30000,
+  serverSelectionTimeoutMS: 15000,
+  connectTimeoutMS: 15000,
+};
+
 export async function getMongoClient(): Promise<MongoClient | null> {
   if (!MONGODB_URI) {
     return null;
@@ -29,10 +37,7 @@ export async function getMongoClient(): Promise<MongoClient | null> {
     if (process.env.NODE_ENV === "development") {
       // In development mode, use a global variable to preserve the client across module reloads
       if (!global._mongoClientPromise) {
-        const client = new MongoClient(MONGODB_URI, {
-          serverSelectionTimeoutMS: 15000,
-          connectTimeoutMS: 15000,
-        });
+        const client = new MongoClient(MONGODB_URI, MONGO_OPTIONS);
         global._mongoClientPromise = client.connect();
       }
       const client = await global._mongoClientPromise;
@@ -40,10 +45,7 @@ export async function getMongoClient(): Promise<MongoClient | null> {
       return client;
     } else {
       if (!clientPromise) {
-        const client = new MongoClient(MONGODB_URI, {
-          serverSelectionTimeoutMS: 15000,
-          connectTimeoutMS: 15000,
-        });
+        const client = new MongoClient(MONGODB_URI, MONGO_OPTIONS);
         clientPromise = client.connect();
       }
       const client = await clientPromise;
@@ -52,6 +54,10 @@ export async function getMongoClient(): Promise<MongoClient | null> {
     }
   } catch (error: any) {
     console.error("MongoDB Atlas connection attempt failed:", error.message);
+    clientPromise = null;
+    if (global._mongoClientPromise) {
+      delete global._mongoClientPromise;
+    }
     isConnected = false;
     return null;
   }
@@ -98,20 +104,18 @@ export async function testMongoConnection(): Promise<{
     let clusterDisplay = "MongoDB Atlas Cluster";
     try {
       const parsed = new URL(MONGODB_URI.replace(/^mongodb\+srv:\/\//, "http://").replace(/^mongodb:\/\//, "http://"));
-      clusterDisplay = parsed.host || clusterDisplay;
-    } catch {
-      // ignore
-    }
+      clusterDisplay = parsed.hostname || "MongoDB Atlas";
+    } catch {}
 
     return {
       connected: true,
       database: MONGODB_DB,
       cluster: clusterDisplay,
     };
-  } catch (err: any) {
+  } catch (error: any) {
     return {
       connected: false,
-      error: err.message || "Failed to ping MongoDB Atlas",
+      error: error.message,
     };
   }
 }
