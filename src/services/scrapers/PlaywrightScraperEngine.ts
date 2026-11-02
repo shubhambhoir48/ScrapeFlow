@@ -24,7 +24,7 @@ export interface CrawlOptions {
 }
 
 export class PlaywrightScraperEngine {
-  private static userAgent =
+  public static userAgent =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
 
   async launchStealthBrowser(): Promise<Browser> {
@@ -85,28 +85,46 @@ export class PlaywrightScraperEngine {
   }
 
   async fetchPageHtml(url: string, timeoutMs: number = 25000): Promise<{ html: string; title: string }> {
-    const browser = await this.launchStealthBrowser();
+    let browser: Browser | null = null;
     try {
-      const { page } = await this.createStealthPage(browser);
+      browser = await this.launchStealthBrowser();
+      try {
+        const { page } = await this.createStealthPage(browser);
 
-      await page.goto(url, {
-        timeout: timeoutMs,
-        waitUntil: "domcontentloaded",
-      });
+        await page.goto(url, {
+          timeout: timeoutMs,
+          waitUntil: "domcontentloaded",
+        });
 
-      const initialTitle = await page.title();
-      if (initialTitle.includes("Attention Required") || initialTitle.includes("Just a moment")) {
-        await page.waitForTimeout(4000);
-      } else {
-        await page.waitForTimeout(1500);
+        const initialTitle = await page.title();
+        if (initialTitle.includes("Attention Required") || initialTitle.includes("Just a moment")) {
+          await page.waitForTimeout(4000);
+        } else {
+          await page.waitForTimeout(1000);
+        }
+
+        const html = await page.content();
+        const title = await page.title();
+
+        return { html, title };
+      } finally {
+        await browser.close();
       }
-
-      const html = await page.content();
-      const title = await page.title();
-
-      return { html, title };
-    } finally {
-      await browser.close();
+    } catch {
+      try {
+        const res = await fetch(url, {
+          headers: {
+            "User-Agent": PlaywrightScraperEngine.userAgent,
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          },
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        const html = await res.text();
+        const $ = cheerio.load(html);
+        return { html, title: $("title").text().trim() || "Web Page" };
+      } catch {
+        return { html: "", title: "" };
+      }
     }
   }
 
@@ -131,25 +149,72 @@ export class PlaywrightScraperEngine {
       message: `Launching Enterprise Multi-Level Crawler (Target Items: ${maxItems}, Depth: ${depth}, Max Pages: ${maxPages})`,
     });
 
-    const browser = await this.launchStealthBrowser();
-    try {
-      const { page } = await this.createStealthPage(browser);
+    let browser: Browser | null = null;
+    let page: Page | null = null;
 
+    try {
+      browser = await this.launchStealthBrowser();
+      const stealth = await this.createStealthPage(browser);
+      page = stealth.page;
+    } catch (launchErr: any) {
+      log({
+        level: "warn",
+        message: `Headless Chromium unavailable in current environment. Executing autonomously via High-Speed HTTP/Cheerio Spider...`,
+      });
+    }
+
+    const fetchHtml = async (
+      targetUrl: string,
+      timeoutMs: number = 25000
+    ): Promise<{ html: string; title: string; currentUrl: string }> => {
+      if (page) {
+        try {
+          await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+          await page.waitForTimeout(600);
+          const html = await page.content();
+          const title = await page.title();
+          const currentUrl = page.url();
+          return { html, title, currentUrl };
+        } catch (navErr: any) {
+          log({ level: "warn", message: `Navigation warning on ${targetUrl}: ${navErr.message}` });
+        }
+      }
+      try {
+        const res = await fetch(targetUrl, {
+          headers: {
+            "User-Agent": PlaywrightScraperEngine.userAgent,
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+          },
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        const html = await res.text();
+        const $ = cheerio.load(html);
+        const title = $("title").text().trim() || "Web Directory";
+        return { html, title, currentUrl: res.url || targetUrl };
+      } catch {
+        return { html: "", title: "", currentUrl: targetUrl };
+      }
+    };
+
+    try {
       // Session Warmup: Navigate to Seed URL
       log({ level: "info", message: `[Level 1] Connecting to seed directory: ${seedUrl}` });
-      await page.goto(seedUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
-      await page.waitForTimeout(2000);
+      const rootRes = await fetchHtml(seedUrl, 30000);
+      const rootTitle = rootRes.title;
+      const currentUrl = rootRes.currentUrl;
+      const currentHtml = rootRes.html;
 
-      const rootTitle = await page.title();
-      const currentUrl = page.url();
-
-      const currentHtml = await page.content();
-      const $root = cheerio.load(currentHtml);
+      const $root = cheerio.load(currentHtml || "<html><body></body></html>");
       const initialCards = $root(".rc-body, .company-list-item, [class*='listing']");
 
       let listingUrlsToCrawl: string[] = [];
 
-      const origin = new URL(seedUrl).origin;
+      let origin = "https://www.maharashtradirectory.com";
+      try {
+        origin = new URL(seedUrl).origin;
+      } catch {}
+
       const isMahaDirectory = seedUrl.toLowerCase().includes("maharashtradirectory");
 
       if (initialCards.length >= 2 || currentUrl.includes("/product/")) {
@@ -202,9 +267,8 @@ export class PlaywrightScraperEngine {
         if (masterCatUrl) {
           try {
             log({ level: "info", message: `[Level 1] Deep indexing master category directory: ${masterCatUrl}` });
-            await page.goto(masterCatUrl, { waitUntil: "domcontentloaded", timeout: 20000 });
-            await page.waitForTimeout(1000);
-            const catHtml = await page.content();
+            const catRes = await fetchHtml(masterCatUrl, 20000);
+            const catHtml = catRes.html;
             const $cat = cheerio.load(catHtml);
 
             const subcats: string[] = [];
@@ -223,9 +287,8 @@ export class PlaywrightScraperEngine {
             for (const sub of subcatsToExplore) {
               if (listingUrlsToCrawl.length >= maxCategories) break;
               try {
-                await page.goto(sub, { waitUntil: "domcontentloaded", timeout: 20000 });
-                await page.waitForTimeout(600);
-                const subHtml = await page.content();
+                const subRes = await fetchHtml(sub, 15000);
+                const subHtml = subRes.html;
                 const $sub = cheerio.load(subHtml);
 
                 $sub('a[href*="/product/"]').each((_, el) => {
@@ -268,9 +331,8 @@ export class PlaywrightScraperEngine {
                 level: "info",
                 message: `[Level 1] Discovering product catalog pathways from index [Letter ${letter}]: ${alphaUrl}`,
               });
-              await page.goto(alphaUrl, { waitUntil: "domcontentloaded", timeout: 20000 });
-              await page.waitForTimeout(600);
-              const alphaHtml = await page.content();
+              const alphaRes = await fetchHtml(alphaUrl, 15000);
+              const alphaHtml = alphaRes.html;
               const $alpha = cheerio.load(alphaHtml);
 
               $alpha('a[href*="/product/"]').each((_, el) => {
@@ -326,16 +388,10 @@ export class PlaywrightScraperEngine {
             message: `[Level 2] Crawling pathway ${pIdx + 1}/${listingUrlsToCrawl.length} (Page ${pageNum}/${maxPages}): ${currentPageUrl}`,
           });
 
-          try {
-            await page.goto(currentPageUrl, { waitUntil: "domcontentloaded", timeout: 25000 });
-            await page.waitForTimeout(2000);
-          } catch (navErr: any) {
-            log({ level: "warn", message: `Navigation warning on ${currentPageUrl}: ${navErr.message}` });
-            break;
-          }
+          const pageRes = await fetchHtml(currentPageUrl, 25000);
+          let pageHtml = pageRes.html;
+          if (!pageHtml) break;
 
-          // Check if page has deeper product link if cards count is 0
-          let pageHtml = await page.content();
           let $ = cheerio.load(pageHtml);
           let cards = $(".rc-body");
 
@@ -347,12 +403,13 @@ export class PlaywrightScraperEngine {
                 : new URL(deeperProd, currentPageUrl).toString();
               log({ level: "info", message: `[Level 2] Following deeper product listings link: ${fullProd}` });
               try {
-                await page.goto(fullProd, { waitUntil: "domcontentloaded", timeout: 25000 });
-                await page.waitForTimeout(2000);
-                pageHtml = await page.content();
-                $ = cheerio.load(pageHtml);
-                cards = $(".rc-body");
-                currentPageUrl = fullProd;
+                const prodRes = await fetchHtml(fullProd, 25000);
+                if (prodRes.html) {
+                  pageHtml = prodRes.html;
+                  $ = cheerio.load(pageHtml);
+                  cards = $(".rc-body");
+                  currentPageUrl = fullProd;
+                }
               } catch {}
             }
           }
@@ -490,25 +547,25 @@ export class PlaywrightScraperEngine {
             for (const rec of pageRecords) {
               if (rec.companyInfoUrl) {
                 try {
-                  await page.goto(rec.companyInfoUrl, { waitUntil: "domcontentloaded", timeout: 20000 });
-                  await page.waitForTimeout(1200);
+                  const detailRes = await fetchHtml(rec.companyInfoUrl, 20000);
+                  const detailHtml = detailRes.html;
+                  if (detailHtml) {
+                    const unmasked = DataUnmasker.extractFromHtml(detailHtml, rec.companyInfoUrl);
 
-                  const detailHtml = await page.content();
-                  const unmasked = DataUnmasker.extractFromHtml(detailHtml, rec.companyInfoUrl);
-
-                  if (unmasked.streetAddress) rec.fullAddress = unmasked.streetAddress;
-                  if (unmasked.streetAddress) rec.address = unmasked.streetAddress;
-                  if (unmasked.city) rec.city = unmasked.city;
-                  if (unmasked.state) rec.state = unmasked.state;
-                  if (unmasked.postalCode) rec.postalCode = unmasked.postalCode;
-                  if (unmasked.contactPerson && (!rec.contactPerson || rec.contactPerson === "Key Decision Maker")) {
-                    rec.contactPerson = unmasked.contactPerson;
+                    if (unmasked.streetAddress) rec.fullAddress = unmasked.streetAddress;
+                    if (unmasked.streetAddress) rec.address = unmasked.streetAddress;
+                    if (unmasked.city) rec.city = unmasked.city;
+                    if (unmasked.state) rec.state = unmasked.state;
+                    if (unmasked.postalCode) rec.postalCode = unmasked.postalCode;
+                    if (unmasked.contactPerson && (!rec.contactPerson || rec.contactPerson === "Key Decision Maker")) {
+                      rec.contactPerson = unmasked.contactPerson;
+                    }
+                    if (unmasked.designation && (!rec.designation || rec.designation === "Executive")) {
+                      rec.designation = unmasked.designation;
+                    }
+                    if (unmasked.email) rec.email = unmasked.email;
+                    if (unmasked.products.length > 0) rec.products = unmasked.products.slice(0, 5).join(", ");
                   }
-                  if (unmasked.designation && (!rec.designation || rec.designation === "Executive")) {
-                    rec.designation = unmasked.designation;
-                  }
-                  if (unmasked.email) rec.email = unmasked.email;
-                  if (unmasked.products.length > 0) rec.products = unmasked.products.slice(0, 5).join(", ");
                 } catch {
                   // Keep Level 2 values if detail fetch times out
                 }
@@ -568,7 +625,11 @@ export class PlaywrightScraperEngine {
         items: allExtractedRecords,
       };
     } finally {
-      await browser.close();
+      if (browser) {
+        try {
+          await browser.close();
+        } catch {}
+      }
     }
   }
 

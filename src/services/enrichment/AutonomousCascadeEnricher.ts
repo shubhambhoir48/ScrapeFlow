@@ -40,7 +40,12 @@ export class AutonomousCascadeEnricher {
       confidenceScore: 0.7,
     };
 
-    const browser = await this.playwright.launchStealthBrowser();
+    let browser: any = null;
+    try {
+      browser = await this.playwright.launchStealthBrowser();
+    } catch {
+      return await this.enrichViaHttp(companyName, currentAddress, city, contactPerson);
+    }
     try {
       const { page } = await this.playwright.createStealthPage(browser);
 
@@ -202,7 +207,86 @@ export class AutonomousCascadeEnricher {
 
       return result;
     } finally {
-      await browser.close();
+      if (browser) {
+        try {
+          await browser.close();
+        } catch {}
+      }
     }
+  }
+
+  async enrichViaHttp(
+    companyName: string,
+    currentAddress: string = "",
+    city: string = "",
+    contactPerson: string = ""
+  ): Promise<CascadeEnrichmentResult> {
+    const result: CascadeEnrichmentResult = {
+      alternatePhones: [],
+      alternateEmails: [],
+      socialProfiles: {},
+      sourcesConsulted: ["HTTP Corporate Intelligence Engine"],
+      confidenceScore: 0.85,
+    };
+
+    const cleanDomain = companyName.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const candidateDomains = [`https://${cleanDomain}.com`, `https://${cleanDomain}.in`];
+
+    for (const targetUrl of candidateDomains) {
+      try {
+        const res = await fetch(targetUrl, {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+          },
+          signal: AbortSignal.timeout(8000),
+        });
+
+        if (res.ok) {
+          result.websiteUrl = targetUrl;
+          const html = await res.text();
+          const $ = cheerio.load(html);
+          const bodyText = $("body").text();
+
+          // 1. Unmask phone
+          const mobMatches = bodyText.match(/(?:\+91[-\s]?)?[6-9]\d{9}/g) || [];
+          if (mobMatches.length > 0 && mobMatches[0]) {
+            result.unmaskedPhone = mobMatches[0].trim();
+            result.alternatePhones = Array.from(new Set(mobMatches.slice(1, 3).map((m) => m.trim())));
+          }
+
+          // 2. Unmask email
+          const emailMatches = bodyText.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g) || [];
+          const cleanEmails = Array.from(new Set(emailMatches)).filter(
+            (e) => !e.includes("example.com") && !e.includes("sentry.io") && !e.includes("wix.com")
+          );
+          if (cleanEmails.length > 0 && cleanEmails[0]) {
+            result.corporateEmail = cleanEmails[0];
+            result.alternateEmails = cleanEmails.slice(1, 3);
+          }
+
+          // 3. Social profiles
+          $("a[href*='linkedin.com']").each((_, el) => {
+            if (!result.socialProfiles?.linkedin) result.socialProfiles!.linkedin = $(el).attr("href");
+          });
+          $("a[href*='facebook.com']").each((_, el) => {
+            if (!result.socialProfiles?.facebook) result.socialProfiles!.facebook = $(el).attr("href");
+          });
+          $("a[href*='twitter.com'], a[href*='x.com']").each((_, el) => {
+            if (!result.socialProfiles?.twitter) result.socialProfiles!.twitter = $(el).attr("href");
+          });
+
+          break;
+        }
+      } catch {}
+    }
+
+    if (contactPerson && contactPerson !== "Key Decision Maker" && !result.socialProfiles?.linkedin) {
+      result.socialProfiles!.linkedin = `https://www.linkedin.com/search/results/all/?keywords=${encodeURIComponent(
+        `${contactPerson} ${companyName}`
+      )}`;
+    }
+
+    return result;
   }
 }
