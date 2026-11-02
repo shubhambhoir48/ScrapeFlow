@@ -5,6 +5,9 @@ import { MongoCompanyRepository } from "@/repositories/MongoCompanyRepository";
 import { MongoPeopleRepository } from "@/repositories/MongoPeopleRepository";
 import { BackgroundEnrichmentWorker } from "@/services/enrichment/BackgroundEnrichmentWorker";
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   try {
     const { url } = await request.json();

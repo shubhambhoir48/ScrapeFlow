@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { MongoPeopleRepository } from "@/repositories/MongoPeopleRepository";
 import { seedInitialPeople } from "@/lib/seed";
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
 export async function GET(request: Request) {
   try {
     await seedInitialPeople();

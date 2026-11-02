@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import {
   Layers,
@@ -165,27 +165,108 @@ export default function CampaignsPage() {
     }
   }
 
+  const isFetchingRef = useRef(false);
+
   async function fetchCampaigns() {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     try {
       const res = await fetch("/api/campaigns");
+      if (!res.ok) return;
       const data = await res.json();
-      setCampaigns(data.campaigns || []);
+      const serverCamps: ScrapingCampaign[] = data.campaigns || [];
+
+      setCampaigns((prev) => {
+        const map = new Map<string, ScrapingCampaign>();
+        prev.forEach((c) => { if (c.id) map.set(c.id, c); });
+        serverCamps.forEach((c) => {
+          if (c.id) {
+            const existing = map.get(c.id);
+            if (existing && (existing.extractedRecords?.length || 0) > (c.extractedRecords?.length || 0)) {
+              map.set(c.id, { ...c, extractedRecords: existing.extractedRecords });
+            } else {
+              map.set(c.id, c);
+            }
+          }
+        });
+        const merged = Array.from(map.values()).sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        try {
+          localStorage.setItem("scrapeflow_campaigns", JSON.stringify(merged));
+        } catch {}
+        return merged;
+      });
+
       if (selectedCampaign) {
-        const updated = data.campaigns?.find((c: ScrapingCampaign) => c.id === selectedCampaign.id);
-        if (updated) setSelectedCampaign(updated);
+        setCampaigns((currentCamps) => {
+          const updated = currentCamps.find((c) => c.id === selectedCampaign.id);
+          if (updated) setSelectedCampaign(updated);
+          return currentCamps;
+        });
       }
     } catch (e) {
       console.error(e);
     } finally {
+      isFetchingRef.current = false;
       setLoading(false);
     }
   }
 
+  // Load from localStorage immediately on client mount
   useEffect(() => {
+    try {
+      const cached = localStorage.getItem("scrapeflow_campaigns");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setCampaigns(parsed);
+          setLoading(false);
+        }
+      }
+    } catch {}
+
     fetchCampaigns();
-    const interval = setInterval(fetchCampaigns, 2500);
+    const interval = setInterval(fetchCampaigns, 4000);
     return () => clearInterval(interval);
-  }, [selectedCampaign?.id]);
+  }, []);
+
+  // Active step execution loop when user is viewing a RUNNING campaign
+  useEffect(() => {
+    if (!selectedCampaign || selectedCampaign.status !== "RUNNING") return;
+    let isCancelled = false;
+    let stepInProgress = false;
+
+    const runStep = async () => {
+      if (isCancelled || stepInProgress) return;
+      stepInProgress = true;
+      try {
+        const res = await fetch(`/api/campaigns/${selectedCampaign.id}/step`, { method: "POST" });
+        if (res.ok) {
+          const data = await res.json();
+          if (!isCancelled && data.campaign) {
+            setSelectedCampaign(data.campaign);
+            setCampaigns((prev) => {
+              const next = prev.map((c) => (c.id === data.campaign.id ? data.campaign : c));
+              try { localStorage.setItem("scrapeflow_campaigns", JSON.stringify(next)); } catch {}
+              return next;
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Step execution error:", err);
+      } finally {
+        stepInProgress = false;
+      }
+    };
+
+    const stepInterval = setInterval(runStep, 3500);
+    runStep();
+    return () => {
+      isCancelled = true;
+      clearInterval(stepInterval);
+    };
+  }, [selectedCampaign?.id, selectedCampaign?.status]);
 
   // Keyboard Escape listener to close any open modal
   useEffect(() => {
@@ -269,11 +350,58 @@ export default function CampaignsPage() {
         .filter(([_, checked]) => checked)
         .map(([k]) => k);
 
+      const tempId = `camp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const optimisticCamp: ScrapingCampaign = {
+        id: tempId,
+        name: campaignName.trim(),
+        type: campaignType,
+        status: "RUNNING",
+        targetUrls: urls,
+        engine: "PLAYWRIGHT_STEALTH",
+        stealthMode,
+        concurrency,
+        crawlDepth,
+        paginationLimit: isUnlimited ? 100 : paginationLimit,
+        fields: [],
+        maxPagesPerTarget: isUnlimited ? 100 : paginationLimit,
+        targetQuota: isUnlimited ? 0 : Number(targetQuota) || 100,
+        isUnlimited: Boolean(isUnlimited),
+        selectedFieldKeys: chosenFieldKeys,
+        progress: 5,
+        totalItems: urls.length,
+        processedItems: 0,
+        successCount: 0,
+        errorCount: 0,
+        extractedRecords: [],
+        logs: [
+          {
+            timestamp: new Date().toISOString(),
+            level: "info",
+            message: `Campaign "${campaignName.trim()}" initialized. Deep crawler online.`,
+          },
+        ],
+        createdAt: new Date().toISOString(),
+      };
+
+      // Optimistic instant state update + localStorage save
+      setCampaigns((prev) => {
+        const next = [optimisticCamp, ...prev.filter((c) => c.id !== tempId)];
+        try { localStorage.setItem("scrapeflow_campaigns", JSON.stringify(next)); } catch {}
+        return next;
+      });
+
+      setModalOpen(false);
+      setCampaignName("");
+      setDiscoveredAnalysis(null);
+      setSelectedCampaign(null);
+      setSuccessBanner(`🚀 Campaign "${optimisticCamp.name}" launched! Live progress is streaming below.`);
+
       const res = await fetch("/api/campaigns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: campaignName.trim(),
+          id: tempId,
+          name: optimisticCamp.name,
           type: campaignType,
           targetUrls: urls,
           engine: "PLAYWRIGHT_STEALTH",
@@ -281,7 +409,9 @@ export default function CampaignsPage() {
           concurrency,
           crawlDepth,
           paginationLimit: isUnlimited ? 100 : paginationLimit,
-          targetQuota: isUnlimited ? 0 : Number(targetQuota) || 100,
+          fields: [],
+        maxPagesPerTarget: isUnlimited ? 100 : paginationLimit,
+        targetQuota: isUnlimited ? 0 : Number(targetQuota) || 100,
           isUnlimited: Boolean(isUnlimited),
           selectedFieldKeys: chosenFieldKeys,
           liveSyncToSheet,
@@ -290,16 +420,16 @@ export default function CampaignsPage() {
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to create campaign");
-
-      // Background Execution: Close creation popup, do NOT force Open View modal
-      setModalOpen(false);
-      setCampaignName("");
-      setDiscoveredAnalysis(null);
-      setSelectedCampaign(null);
-      setSuccessBanner(`🚀 Campaign "${data.campaign?.name || campaignName}" launched in background! Live progress is streaming below.`);
-      fetchCampaigns();
+      if (res.ok) {
+        const data = await res.json();
+        if (data.campaign) {
+          setCampaigns((prev) => {
+            const next = prev.map((c) => (c.id === tempId ? { ...c, ...data.campaign } : c));
+            try { localStorage.setItem("scrapeflow_campaigns", JSON.stringify(next)); } catch {}
+            return next;
+          });
+        }
+      }
     } catch (err: any) {
       alert(`Error creating campaign: ${err.message}`);
     } finally {
@@ -321,10 +451,14 @@ export default function CampaignsPage() {
 
   async function handleDelete(id: string) {
     if (!confirm("Are you sure you want to delete this campaign?")) return;
+    setCampaigns((prev) => {
+      const next = prev.filter((c) => c.id !== id);
+      try { localStorage.setItem("scrapeflow_campaigns", JSON.stringify(next)); } catch {}
+      return next;
+    });
+    if (selectedCampaign?.id === id) setSelectedCampaign(null);
     try {
       await fetch(`/api/campaigns?id=${id}`, { method: "DELETE" });
-      if (selectedCampaign?.id === id) setSelectedCampaign(null);
-      fetchCampaigns();
     } catch (e) {
       console.error(e);
     }

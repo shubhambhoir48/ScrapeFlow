@@ -29,7 +29,7 @@ const envEmails = process.env.NEXT_PUBLIC_AUTHORIZED_EMAILS
 
 export const AUTHORIZED_EMAILS: string[] = envEmails.length > 0
   ? envEmails
-  : ["admin@example.com"];
+  : ["shubhambhoir4895@gmail.com", "bhoirshubham45@gmail.com"];
 
 export function isEmailWhitelisted(email?: string | null): boolean {
   if (!email) return false;

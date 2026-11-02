@@ -3,6 +3,9 @@ import { SocialMediaScraperEngine } from "@/services/scrapers/SocialMediaScraper
 import { MongoCompanyRepository } from "@/repositories/MongoCompanyRepository";
 import { MongoPeopleRepository } from "@/repositories/MongoPeopleRepository";
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();

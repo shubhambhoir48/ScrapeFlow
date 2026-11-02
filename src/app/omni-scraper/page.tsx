@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Target,
   Users,
@@ -85,29 +85,72 @@ export default function OmniScraperPage() {
   const [seniorityFilter, setSeniorityFilter] = useState<string>("ALL");
   const [activeTab, setActiveTab] = useState<"PEOPLE" | "ORG" | "SOCIAL">("PEOPLE");
 
+  const isFetchingRef = useRef(false);
+
   async function fetchCampaigns() {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     try {
       const res = await fetch("/api/omni-scraper");
+      if (!res.ok) return;
       const data = await res.json();
-      setCampaigns(data.campaigns || []);
+      const serverCamps: OmniCampaign[] = data.campaigns || [];
+
+      setCampaigns((prev) => {
+        const map = new Map<string, OmniCampaign>();
+        prev.forEach((c) => { if (c.id) map.set(c.id, c); });
+        serverCamps.forEach((c) => {
+          if (c.id) {
+            const existing = map.get(c.id);
+            if (existing && (existing.dossiers?.length || 0) > (c.dossiers?.length || 0)) {
+              map.set(c.id, { ...c, dossiers: existing.dossiers });
+            } else {
+              map.set(c.id, c);
+            }
+          }
+        });
+        const merged = Array.from(map.values()).sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        try {
+          localStorage.setItem("scrapeflow_omni_campaigns", JSON.stringify(merged));
+        } catch {}
+        return merged;
+      });
+
       if (selectedCampaign) {
-        const updated = data.campaigns?.find((c: OmniCampaign) => c.id === selectedCampaign.id);
-        if (updated) setSelectedCampaign(updated);
-      } else if (data.campaigns?.length > 0 && !selectedCampaign) {
-        setSelectedCampaign(data.campaigns[0]);
+        setCampaigns((curr) => {
+          const updated = curr.find((c) => c.id === selectedCampaign.id);
+          if (updated) setSelectedCampaign(updated);
+          return curr;
+        });
       }
     } catch (e) {
       console.error(e);
     } finally {
+      isFetchingRef.current = false;
       setLoading(false);
     }
   }
 
+  // Load from localStorage immediately on client mount
   useEffect(() => {
+    try {
+      const cached = localStorage.getItem("scrapeflow_omni_campaigns");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setCampaigns(parsed);
+          setSelectedCampaign(parsed[0]);
+          setLoading(false);
+        }
+      }
+    } catch {}
+
     fetchCampaigns();
-    const interval = setInterval(fetchCampaigns, 2500);
+    const interval = setInterval(fetchCampaigns, 3500);
     return () => clearInterval(interval);
-  }, [selectedCampaign?.id]);
+  }, []);
 
   function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -149,33 +192,67 @@ export default function OmniScraperPage() {
         .filter(([_, v]) => v)
         .map(([k]) => k as SeniorityLevel);
 
+      const tempId = `omni_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const campName = `Omni-Channel Harvest: ${orgList[0]}${orgList.length > 1 ? ` +${orgList.length - 1} more` : ""}`;
+      const optimisticCamp: OmniCampaign = {
+        id: tempId,
+        name: campName,
+        organizations: orgList,
+        config: {
+          extractPeople,
+          targetSeniorities: activeSeniorities,
+          targetDepartments: ["EXECUTIVE", "ENGINEERING", "MARKETING", "SALES", "OPERATIONS", "HUMAN_RESOURCES", "FINANCE"],
+          maxPeoplePerOrg,
+          extractEmails,
+          extractPhones,
+          extractSocial,
+          extractOrgDetails,
+          extractGoogleMaps,
+          depth,
+        },
+        status: "RUNNING",
+        progress: 10,
+        currentOrg: orgList[0] || "",
+        dossiers: [],
+        logs: [
+          {
+            timestamp: new Date().toLocaleTimeString(),
+            level: "info",
+            message: `Omni-Channel harvest initiated for ${orgList.length} organizations.`,
+          },
+        ],
+        createdAt: new Date().toISOString(),
+      };
+
+      setCampaigns((prev) => {
+        const next = [optimisticCamp, ...prev.filter((c) => c.id !== tempId)];
+        try { localStorage.setItem("scrapeflow_omni_campaigns", JSON.stringify(next)); } catch {}
+        return next;
+      });
+      setSelectedCampaign(optimisticCamp);
+      setModalOpen(false);
+
       const res = await fetch("/api/omni-scraper", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          id: tempId,
           organizations: orgList,
-          name: `Omni-Channel Harvest: ${orgList[0]}${orgList.length > 1 ? ` +${orgList.length - 1} more` : ""}`,
-          config: {
-            extractPeople,
-            targetSeniorities: activeSeniorities,
-            maxPeoplePerOrg,
-            extractEmails,
-            extractPhones,
-            extractSocial,
-            extractOrgDetails,
-            extractGoogleMaps,
-            depth,
-          },
+          name: campName,
+          config: optimisticCamp.config,
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to start omni scraper");
-
-      setModalOpen(false);
-      fetchCampaigns();
-      if (data.campaign) {
-        setSelectedCampaign(data.campaign);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.campaign) {
+          setCampaigns((prev) => {
+            const next = prev.map((c) => (c.id === tempId ? { ...c, ...data.campaign } : c));
+            try { localStorage.setItem("scrapeflow_omni_campaigns", JSON.stringify(next)); } catch {}
+            return next;
+          });
+          setSelectedCampaign(data.campaign);
+        }
       }
     } catch (err: any) {
       alert(`Error starting scraper: ${err.message}`);

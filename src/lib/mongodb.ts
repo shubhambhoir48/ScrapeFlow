@@ -3,7 +3,9 @@ import dns from "dns";
 
 // Ensure reliable SRV DNS resolution for MongoDB Atlas across Windows / ISP networks
 try {
-  dns.setServers(["8.8.8.8", "1.1.1.1", "8.8.4.4"]);
+  if (typeof process !== "undefined" && process.platform === "win32") {
+    dns.setServers(["8.8.8.8", "1.1.1.1", "8.8.4.4"]);
+  }
 } catch {
   // Ignore in sandboxed runtimes
 }
@@ -20,12 +22,13 @@ declare const global: MongoGlobal & typeof globalThis;
 let clientPromise: Promise<MongoClient> | null = null;
 let isConnected = false;
 
+// Fast-fail timeouts ensure serverless functions never hang or trigger Vercel 504 timeouts
 const MONGO_OPTIONS = {
   maxPoolSize: 10,
   minPoolSize: 1,
   maxIdleTimeMS: 30000,
-  serverSelectionTimeoutMS: 15000,
-  connectTimeoutMS: 15000,
+  serverSelectionTimeoutMS: 2500,
+  connectTimeoutMS: 2500,
 };
 
 export async function getMongoClient(): Promise<MongoClient | null> {
