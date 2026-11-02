@@ -43,3 +43,6 @@ playwright-report/
 blob-report/
 playwright/.cache/
 
+# Local cache stores
+.scrapeflow_*.json
+

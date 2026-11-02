@@ -11,3 +11,4 @@ export interface UserProfile {
   createdAt: string;
   lastLoginAt: string;
 }
+
