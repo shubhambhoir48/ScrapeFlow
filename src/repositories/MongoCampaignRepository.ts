@@ -51,11 +51,15 @@ export class MongoCampaignRepository {
     }
   }
 
-  async getAll(): Promise<ScrapingCampaign[]> {
+  async getAll(userId?: string): Promise<ScrapingCampaign[]> {
+    const filterQuery: Record<string, any> = {};
+    if (userId) {
+      filterQuery.$or = [{ userId }, { userId: { $exists: false } }];
+    }
     try {
       const col = await this.getCollection();
       if (col) {
-        const docs = await col.find({}).sort({ createdAt: -1 }).toArray();
+        const docs = await col.find(filterQuery).sort({ createdAt: -1 }).toArray();
         const mapped = docs.map((d) => ({ ...d, _id: d._id.toString() } as unknown as ScrapingCampaign));
         writeDiskStore(mapped);
         return mapped;
@@ -69,7 +73,12 @@ export class MongoCampaignRepository {
       }
     }
 
-    return Array.from(MongoCampaignRepository.memoryStore.values()).sort(
+    const all = Array.from(MongoCampaignRepository.memoryStore.values());
+    const filtered = userId
+      ? all.filter((c) => !c.userId || c.userId === userId)
+      : all;
+
+    return filtered.sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
   }

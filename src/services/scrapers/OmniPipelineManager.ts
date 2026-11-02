@@ -28,6 +28,8 @@ function writeOmniDisk(camps: OmniCampaign[]): void {
 export interface OmniCampaign {
   id: string;
   name: string;
+  userId?: string;
+  userEmail?: string;
   organizations: string[];
   config: OmniScrapeConfig;
   status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
@@ -55,14 +57,16 @@ export class OmniPipelineManager {
     return OmniPipelineManager.instance;
   }
 
-  getAllCampaigns(): OmniCampaign[] {
+  getAllCampaigns(userId?: string): OmniCampaign[] {
     const onDisk = readOmniDisk();
     for (const c of onDisk) {
       if (c.id && !this.campaigns.has(c.id)) {
         this.campaigns.set(c.id, c);
       }
     }
-    return Array.from(this.campaigns.values()).sort(
+    const all = Array.from(this.campaigns.values());
+    const filtered = userId ? all.filter((c) => !c.userId || c.userId === userId) : all;
+    return filtered.sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
   }
@@ -78,11 +82,13 @@ export class OmniPipelineManager {
     return undefined;
   }
 
-  createCampaign(organizations: string[], config: OmniScrapeConfig, name?: string): OmniCampaign {
+  createCampaign(organizations: string[], config: OmniScrapeConfig, name?: string, userId?: string, userEmail?: string): OmniCampaign {
     const id = `omni_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const camp: OmniCampaign = {
       id,
       name: name || `Omni-Channel Harvest (${organizations.length} Organizations)`,
+      userId,
+      userEmail,
       organizations,
       config,
       status: "PENDING",

@@ -67,6 +67,11 @@ export class MongoCompanyRepository implements IStorageRepository<Company> {
     if (filter.hasEmail) {
       query["emails.0"] = { $exists: true };
     }
+    if (filter.userId) {
+      query.$and = (query.$and || []).concat([
+        { $or: [{ userId: filter.userId }, { userId: { $exists: false } }] },
+      ]);
+    }
 
     if (col) {
       const skip = filter.skip || 0;

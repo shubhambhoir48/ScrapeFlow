@@ -8,6 +8,7 @@ export const maxDuration = 60;
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
+  const userId = searchParams.get("userId") || req.headers.get("x-user-id") || undefined;
   const manager = OmniPipelineManager.getInstance();
 
   if (id) {
@@ -18,13 +19,15 @@ export async function GET(req: Request) {
     return NextResponse.json({ campaign });
   }
 
-  const campaigns = manager.getAllCampaigns();
+  const campaigns = manager.getAllCampaigns(userId);
   return NextResponse.json({ campaigns });
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+    const userId = body.userId || req.headers.get("x-user-id") || undefined;
+    const userEmail = body.userEmail || req.headers.get("x-user-email") || undefined;
     const { organizations, config, name } = body;
 
     if (!organizations || !Array.isArray(organizations) || organizations.length === 0) {
@@ -64,7 +67,7 @@ export async function POST(req: Request) {
     };
 
     const manager = OmniPipelineManager.getInstance();
-    const campaign = manager.createCampaign(cleanOrgs, finalConfig, name);
+    const campaign = manager.createCampaign(cleanOrgs, finalConfig, name, userId, userEmail);
 
     return NextResponse.json({
       success: true,
@@ -76,4 +79,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: err.message || "Failed to start Omni Scraper" }, { status: 500 });
   }
 }
-

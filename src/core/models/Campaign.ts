@@ -16,6 +16,8 @@ export interface CampaignFieldDef {
 export interface ScrapingCampaign {
   _id?: string;
   id?: string;
+  userId?: string;
+  userEmail?: string;
   name: string;
   description?: string;
   type: CampaignType;

@@ -7,52 +7,91 @@ import {
   signOut,
   onAuthStateChanged,
 } from "firebase/auth";
-import { auth, googleProvider, isEmailWhitelisted } from "@/lib/firebase";
+import { auth, googleProvider } from "@/lib/firebase";
+import { UserProfile, UserRole } from "@/core/models/User";
 
 interface AuthContextType {
   user: User | null;
+  profile: UserProfile | null;
   loading: boolean;
   isAuthorized: boolean;
+  role: UserRole;
   authError: string | null;
   signInWithGoogle: () => Promise<boolean>;
+  signUpWithGoogle: () => Promise<boolean>;
   signOutUser: () => Promise<void>;
   clearError: () => void;
 }
 
+const SUPER_ADMINS = [
+  "shubhambhoir4895@gmail.com",
+  "bhoirshubham45@gmail.com",
+];
+
 const AuthContext = createContext<AuthContextType>({
   user: null,
+  profile: null,
   loading: true,
   isAuthorized: false,
+  role: "MEMBER",
   authError: null,
   signInWithGoogle: async () => false,
+  signUpWithGoogle: async () => false,
   signOutUser: async () => {},
   clearError: () => {},
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
+  const [role, setRole] = useState<UserRole>("MEMBER");
   const [authError, setAuthError] = useState<string | null>(null);
 
+  const syncProfile = async (currentUser: User): Promise<UserProfile | null> => {
+    try {
+      const res = await fetch("/api/auth/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          uid: currentUser.uid,
+          email: currentUser.email,
+          displayName: currentUser.displayName,
+          photoURL: currentUser.photoURL,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.profile) {
+          setProfile(data.profile);
+          return data.profile;
+        }
+      }
+    } catch (e) {
+      console.warn("User profile sync deferred (offline/cached):", e);
+    }
+    return null;
+  };
+
   useEffect(() => {
-    // Listen for auth state changes with persistent session recovery
     const unsubscribe = onAuthStateChanged(
       auth,
-      (currentUser) => {
+      async (currentUser) => {
         setUser(currentUser);
-        if (currentUser) {
-          const authorized = isEmailWhitelisted(currentUser.email);
-          setIsAuthorized(authorized);
-          if (!authorized && currentUser.email) {
-            setAuthError(
-              `Access denied for ${currentUser.email}. This account is not present in the verified whitelist.`
-            );
-          } else {
-            setAuthError(null);
-          }
+        if (currentUser && currentUser.email) {
+          setIsAuthorized(true);
+          const emailLower = currentUser.email.toLowerCase().trim();
+          const determinedRole: UserRole = SUPER_ADMINS.includes(emailLower) ? "SUPER_ADMIN" : "MEMBER";
+          setRole(determinedRole);
+          setAuthError(null);
+
+          // Sync user profile to database
+          syncProfile(currentUser);
         } else {
           setIsAuthorized(false);
+          setProfile(null);
+          setRole("MEMBER");
         }
         setLoading(false);
       },
@@ -66,43 +105,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => unsubscribe();
   }, []);
 
-  async function signInWithGoogle(): Promise<boolean> {
+  async function handleGoogleAuth(): Promise<boolean> {
     setAuthError(null);
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const signedInUser = result.user;
       setUser(signedInUser);
+      setIsAuthorized(true);
 
-      const authorized = isEmailWhitelisted(signedInUser.email);
-      setIsAuthorized(authorized);
+      const emailLower = (signedInUser.email || "").toLowerCase().trim();
+      const determinedRole: UserRole = SUPER_ADMINS.includes(emailLower) ? "SUPER_ADMIN" : "MEMBER";
+      setRole(determinedRole);
 
-      if (!authorized) {
-        setAuthError(
-          `Access denied for ${signedInUser.email || "this account"}. This account is not present in the verified whitelist.`
-        );
-        return false;
-      }
-
+      await syncProfile(signedInUser);
       return true;
     } catch (err: any) {
       if (
         err.code === "auth/popup-closed-by-user" ||
         err.code === "auth/cancelled-popup-request"
       ) {
-        // User voluntarily dismissed popup
         return false;
       }
-      console.error("Google Sign-In Error:", err);
-      setAuthError(err.message || "Failed to sign in with Google. Please retry.");
+      console.error("Google Auth Error:", err);
+      setAuthError(err.message || "Failed to authenticate with Google. Please try again.");
       return false;
     }
+  }
+
+  async function signInWithGoogle(): Promise<boolean> {
+    return handleGoogleAuth();
+  }
+
+  async function signUpWithGoogle(): Promise<boolean> {
+    return handleGoogleAuth();
   }
 
   async function signOutUser(): Promise<void> {
     try {
       await signOut(auth);
       setUser(null);
+      setProfile(null);
       setIsAuthorized(false);
+      setRole("MEMBER");
       setAuthError(null);
     } catch (err: any) {
       console.error("Sign Out Error:", err);
@@ -117,10 +161,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
+        profile,
         loading,
         isAuthorized,
+        role,
         authError,
         signInWithGoogle,
+        signUpWithGoogle,
         signOutUser,
         clearError,
       }}
@@ -133,4 +180,3 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 export function useAuth() {
   return useContext(AuthContext);
 }
-

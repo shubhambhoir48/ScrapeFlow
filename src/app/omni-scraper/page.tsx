@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { useAuth } from "@/context/AuthContext";
 import {
   Target,
   Users,
@@ -35,6 +36,8 @@ import { OmniCampaign } from "@/services/scrapers/OmniPipelineManager";
 import { OmniOrgDossier } from "@/services/scrapers/OmniChannelScraperEngine";
 
 export default function OmniScraperPage() {
+  const { user } = useAuth();
+  const storageKey = user?.uid ? `scrapeflow_omni_${user.uid}` : "scrapeflow_omni_campaigns";
   const [campaigns, setCampaigns] = useState<OmniCampaign[]>([]);
   const [selectedCampaign, setSelectedCampaign] = useState<OmniCampaign | null>(null);
   const [loading, setLoading] = useState(true);
@@ -91,7 +94,12 @@ export default function OmniScraperPage() {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
     try {
-      const res = await fetch("/api/omni-scraper");
+      const res = await fetch(`/api/omni-scraper?userId=${user?.uid || ""}`, {
+        headers: {
+          "x-user-id": user?.uid || "",
+          "x-user-email": user?.email || "",
+        },
+      });
       if (!res.ok) return;
       const data = await res.json();
       const serverCamps: OmniCampaign[] = data.campaigns || [];
@@ -113,7 +121,7 @@ export default function OmniScraperPage() {
           (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         );
         try {
-          localStorage.setItem("scrapeflow_omni_campaigns", JSON.stringify(merged));
+          localStorage.setItem(storageKey, JSON.stringify(merged));
         } catch {}
         return merged;
       });
@@ -136,7 +144,7 @@ export default function OmniScraperPage() {
   // Load from localStorage immediately on client mount
   useEffect(() => {
     try {
-      const cached = localStorage.getItem("scrapeflow_omni_campaigns");
+      const cached = localStorage.getItem(storageKey);
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -150,7 +158,7 @@ export default function OmniScraperPage() {
     fetchCampaigns();
     const interval = setInterval(fetchCampaigns, 3500);
     return () => clearInterval(interval);
-  }, []);
+  }, [user?.uid]);
 
   function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -197,6 +205,8 @@ export default function OmniScraperPage() {
       const optimisticCamp: OmniCampaign = {
         id: tempId,
         name: campName,
+        userId: user?.uid,
+        userEmail: user?.email || undefined,
         organizations: orgList,
         config: {
           extractPeople,
@@ -226,7 +236,7 @@ export default function OmniScraperPage() {
 
       setCampaigns((prev) => {
         const next = [optimisticCamp, ...prev.filter((c) => c.id !== tempId)];
-        try { localStorage.setItem("scrapeflow_omni_campaigns", JSON.stringify(next)); } catch {}
+        try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch {}
         return next;
       });
       setSelectedCampaign(optimisticCamp);
@@ -234,9 +244,15 @@ export default function OmniScraperPage() {
 
       const res = await fetch("/api/omni-scraper", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": user?.uid || "",
+          "x-user-email": user?.email || "",
+        },
         body: JSON.stringify({
           id: tempId,
+          userId: user?.uid,
+          userEmail: user?.email,
           organizations: orgList,
           name: campName,
           config: optimisticCamp.config,
@@ -248,7 +264,7 @@ export default function OmniScraperPage() {
         if (data.campaign) {
           setCampaigns((prev) => {
             const next = prev.map((c) => (c.id === tempId ? { ...c, ...data.campaign } : c));
-            try { localStorage.setItem("scrapeflow_omni_campaigns", JSON.stringify(next)); } catch {}
+            try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch {}
             return next;
           });
           setSelectedCampaign(data.campaign);

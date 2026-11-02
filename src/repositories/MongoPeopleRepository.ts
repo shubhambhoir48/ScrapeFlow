@@ -91,6 +91,11 @@ export class MongoPeopleRepository implements IStorageRepository<Person> {
     if (filter.hasLinkedin) {
       query.linkedinUrl = { $exists: true, $ne: "" };
     }
+    if (filter.userId) {
+      query.$and = (query.$and || []).concat([
+        { $or: [{ userId: filter.userId }, { userId: { $exists: false } }] },
+      ]);
+    }
 
     if (col) {
       const skip = filter.skip || 0;

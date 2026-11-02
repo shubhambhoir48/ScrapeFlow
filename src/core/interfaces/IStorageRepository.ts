@@ -1,4 +1,6 @@
 export interface QueryFilter {
+  userId?: string;
+  userEmail?: string;
   search?: string;
   industry?: string;
   status?: string;

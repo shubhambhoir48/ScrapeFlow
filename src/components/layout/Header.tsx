@@ -1,20 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { PlusCircle, Database, Sheet, Radio, LogOut, ShieldCheck } from "lucide-react";
+import { PlusCircle, Database, Sheet, Radio, LogOut, ShieldCheck, User } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 export function Header() {
-  const { user, isAuthorized, signOutUser } = useAuth();
+  const { user, isAuthorized, role, signOutUser } = useAuth();
 
   return (
     <header className="h-16 border-b border-border bg-card/60 backdrop-blur-md px-6 flex items-center justify-between sticky top-0 z-30">
-      {/* Project selector / telemetry status */}
+      {/* Workspace selector / telemetry status */}
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-muted-foreground">Workspace:</span>
-          <span className="text-sm font-semibold text-foreground px-2.5 py-1 bg-muted rounded-md border border-border">
-            Global Enterprise Production
+          <span className="text-sm font-semibold text-foreground px-2.5 py-1 bg-muted rounded-md border border-border flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>{user ? `${user.displayName?.split(" ")[0] || "User"}'s Workspace` : "Private Workspace"}</span>
           </span>
         </div>
 
@@ -29,7 +30,7 @@ export function Header() {
           </div>
           <div className="flex items-center gap-1.5 text-amber-600 font-medium">
             <Sheet className="w-3.5 h-3.5" />
-            <span>Google Sheets Live Sync</span>
+            <span>Google Sheets Sync</span>
           </div>
         </div>
       </div>
@@ -51,8 +52,16 @@ export function Header() {
             )}
             <div className="hidden sm:flex flex-col text-left">
               <span className="font-semibold text-foreground text-[11px] leading-tight flex items-center gap-1">
-                {user.displayName || "Admin"}
-                <ShieldCheck className="w-3 h-3 text-emerald-500" />
+                {user.displayName || "Operator"}
+                {role === "SUPER_ADMIN" ? (
+                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-600 font-bold border border-amber-500/30">
+                    Admin
+                  </span>
+                ) : (
+                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-600 font-bold border border-blue-500/30">
+                    Pro
+                  </span>
+                )}
               </span>
               <span className="text-[10px] text-muted-foreground font-mono leading-tight max-w-[130px] truncate">
                 {user.email}
@@ -61,7 +70,7 @@ export function Header() {
             <button
               type="button"
               onClick={signOutUser}
-              title="Sign Out of Enterprise Console"
+              title="Sign Out of Workspace"
               className="ml-1 p-1 hover:bg-muted text-muted-foreground hover:text-red-600 rounded transition-colors"
             >
               <LogOut className="w-3.5 h-3.5" />
@@ -80,4 +89,3 @@ export function Header() {
     </header>
   );
 }
-

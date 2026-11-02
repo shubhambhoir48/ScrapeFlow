@@ -5,10 +5,12 @@ import { CampaignRunner } from "@/services/scrapers/CampaignRunner";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get("userId") || request.headers.get("x-user-id") || undefined;
     const repo = new MongoCampaignRepository();
-    const campaigns = await repo.getAll();
+    const campaigns = await repo.getAll(userId);
     return NextResponse.json({ campaigns });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -18,6 +20,8 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+    const userId = body.userId || request.headers.get("x-user-id") || undefined;
+    const userEmail = body.userEmail || request.headers.get("x-user-email") || undefined;
     const {
       name,
       description,
@@ -55,9 +59,11 @@ export async function POST(request: Request) {
     }
 
     const repo = new MongoCampaignRepository();
-    const campaignId = `camp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const campaignId = body.id || `camp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const campaign = await repo.create({
       id: campaignId,
+      userId,
+      userEmail,
       name,
       description,
       type: type || "DIRECTORY_SCRAPER",

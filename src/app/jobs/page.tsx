@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAuth } from "@/context/AuthContext";
 import {
   Cpu,
   Play,
@@ -16,13 +17,19 @@ import { ScrapingJob } from "@/core/models/Job";
 import { formatDate } from "@/lib/utils";
 
 export default function JobsPage() {
+  const { user } = useAuth();
   const [jobs, setJobs] = useState<ScrapingJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState<ScrapingJob | null>(null);
 
   async function fetchJobs() {
     try {
-      const res = await fetch("/api/jobs");
+      const res = await fetch(`/api/jobs?userId=${user?.uid || ""}`, {
+        headers: {
+          "x-user-id": user?.uid || "",
+          "x-user-email": user?.email || "",
+        },
+      });
       const data = await res.json();
       setJobs(data.jobs || []);
       if (selectedJob) {

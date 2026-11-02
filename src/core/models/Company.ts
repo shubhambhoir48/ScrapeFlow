@@ -45,6 +45,8 @@ export interface GoogleMapsData {
 export interface Company {
   _id?: string;
   id?: string;
+  userId?: string;
+  userEmail?: string;
   notes?: string;
   domain: string;
   companyName: string;

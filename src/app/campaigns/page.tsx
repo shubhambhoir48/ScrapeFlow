@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { useAuth } from "@/context/AuthContext";
 import Link from "next/link";
 import {
   Layers,
@@ -84,6 +85,8 @@ const PRESET_TEMPLATES = [
 ];
 
 export default function CampaignsPage() {
+  const { user } = useAuth();
+  const storageKey = user?.uid ? `scrapeflow_campaigns_${user.uid}` : "scrapeflow_campaigns";
   const [campaigns, setCampaigns] = useState<ScrapingCampaign[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -171,7 +174,12 @@ export default function CampaignsPage() {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
     try {
-      const res = await fetch("/api/campaigns");
+      const res = await fetch(`/api/campaigns?userId=${user?.uid || ""}`, {
+        headers: {
+          "x-user-id": user?.uid || "",
+          "x-user-email": user?.email || "",
+        },
+      });
       if (!res.ok) return;
       const data = await res.json();
       const serverCamps: ScrapingCampaign[] = data.campaigns || [];
@@ -193,7 +201,7 @@ export default function CampaignsPage() {
           (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         );
         try {
-          localStorage.setItem("scrapeflow_campaigns", JSON.stringify(merged));
+          localStorage.setItem(storageKey, JSON.stringify(merged));
         } catch {}
         return merged;
       });
@@ -216,7 +224,7 @@ export default function CampaignsPage() {
   // Load from localStorage immediately on client mount
   useEffect(() => {
     try {
-      const cached = localStorage.getItem("scrapeflow_campaigns");
+      const cached = localStorage.getItem(storageKey);
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -229,7 +237,7 @@ export default function CampaignsPage() {
     fetchCampaigns();
     const interval = setInterval(fetchCampaigns, 4000);
     return () => clearInterval(interval);
-  }, []);
+  }, [user?.uid]);
 
   // Active step execution loop when user is viewing a RUNNING campaign
   useEffect(() => {
@@ -248,7 +256,7 @@ export default function CampaignsPage() {
             setSelectedCampaign(data.campaign);
             setCampaigns((prev) => {
               const next = prev.map((c) => (c.id === data.campaign.id ? data.campaign : c));
-              try { localStorage.setItem("scrapeflow_campaigns", JSON.stringify(next)); } catch {}
+              try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch {}
               return next;
             });
           }
@@ -354,6 +362,8 @@ export default function CampaignsPage() {
       const optimisticCamp: ScrapingCampaign = {
         id: tempId,
         name: campaignName.trim(),
+        userId: user?.uid,
+        userEmail: user?.email || undefined,
         type: campaignType,
         status: "RUNNING",
         targetUrls: urls,
@@ -386,7 +396,7 @@ export default function CampaignsPage() {
       // Optimistic instant state update + localStorage save
       setCampaigns((prev) => {
         const next = [optimisticCamp, ...prev.filter((c) => c.id !== tempId)];
-        try { localStorage.setItem("scrapeflow_campaigns", JSON.stringify(next)); } catch {}
+        try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch {}
         return next;
       });
 
@@ -398,9 +408,15 @@ export default function CampaignsPage() {
 
       const res = await fetch("/api/campaigns", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": user?.uid || "",
+          "x-user-email": user?.email || "",
+        },
         body: JSON.stringify({
           id: tempId,
+          userId: user?.uid,
+          userEmail: user?.email,
           name: optimisticCamp.name,
           type: campaignType,
           targetUrls: urls,
@@ -425,7 +441,7 @@ export default function CampaignsPage() {
         if (data.campaign) {
           setCampaigns((prev) => {
             const next = prev.map((c) => (c.id === tempId ? { ...c, ...data.campaign } : c));
-            try { localStorage.setItem("scrapeflow_campaigns", JSON.stringify(next)); } catch {}
+            try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch {}
             return next;
           });
         }
@@ -453,7 +469,7 @@ export default function CampaignsPage() {
     if (!confirm("Are you sure you want to delete this campaign?")) return;
     setCampaigns((prev) => {
       const next = prev.filter((c) => c.id !== id);
-      try { localStorage.setItem("scrapeflow_campaigns", JSON.stringify(next)); } catch {}
+      try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch {}
       return next;
     });
     if (selectedCampaign?.id === id) setSelectedCampaign(null);

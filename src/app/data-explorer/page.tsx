@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import { useAuth } from "@/context/AuthContext";
 import Link from "next/link";
 import {
   Database,
@@ -41,6 +42,7 @@ import { Company } from "@/core/models/Company";
 import { Person } from "@/core/models/Person";
 
 export default function DataExplorerPage() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<"ORGANIZATIONS" | "PEOPLE" | "LISTS">("ORGANIZATIONS");
 
   // Companies state
@@ -101,7 +103,13 @@ export default function DataExplorerPage() {
       if (statusFilter !== "ALL") params.set("status", statusFilter);
       if (minRating) params.set("minRating", minRating.toString());
 
-      const res = await fetch(`/api/companies?${params.toString()}`);
+      if (user?.uid) params.set("userId", user.uid);
+      const res = await fetch(`/api/companies?${params.toString()}`, {
+        headers: {
+          "x-user-id": user?.uid || "",
+          "x-user-email": user?.email || "",
+        },
+      });
       const data = await res.json();
       setCompanies(data.items || []);
     } catch (e) {
@@ -125,7 +133,13 @@ export default function DataExplorerPage() {
       if (hasWhatsapp) params.set("hasWhatsapp", "true");
       if (hasLinkedin) params.set("hasLinkedin", "true");
 
-      const res = await fetch(`/api/people?${params.toString()}`);
+      if (user?.uid) params.set("userId", user.uid);
+      const res = await fetch(`/api/people?${params.toString()}`, {
+        headers: {
+          "x-user-id": user?.uid || "",
+          "x-user-email": user?.email || "",
+        },
+      });
       const data = await res.json();
       setPeople(data.items || []);
     } catch (e) {

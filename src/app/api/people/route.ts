@@ -10,6 +10,7 @@ export async function GET(request: Request) {
     await seedInitialPeople();
 
     const { searchParams } = new URL(request.url);
+    const userId = searchParams.get("userId") || request.headers.get("x-user-id") || undefined;
     const search = searchParams.get("search") || undefined;
     const seniority = (searchParams.get("seniority") as any) || undefined;
     const department = (searchParams.get("department") as any) || undefined;
@@ -23,6 +24,7 @@ export async function GET(request: Request) {
 
     const repo = new MongoPeopleRepository();
     const result = await repo.find({
+      userId,
       search,
       seniority,
       department,
@@ -44,11 +46,13 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+    const userId = body.userId || request.headers.get("x-user-id") || undefined;
+    const userEmail = body.userEmail || request.headers.get("x-user-email") || undefined;
+
     const repo = new MongoPeopleRepository();
-    const created = await repo.create(body);
+    const created = await repo.create({ ...body, userId, userEmail });
     return NextResponse.json(created, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
-

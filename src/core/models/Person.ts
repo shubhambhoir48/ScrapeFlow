@@ -29,6 +29,8 @@ export type Department =
 export interface Person {
   _id?: string;
   id?: string;
+  userId?: string;
+  userEmail?: string;
   notes?: string;
   fullName: string;
   firstName?: string;
