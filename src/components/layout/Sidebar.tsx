@@ -19,6 +19,12 @@ import { cn } from "@/lib/utils";
 
 const navigationGroups = [
   {
+    title: "Overview",
+    items: [
+      { name: "Platform Dashboard", href: "/", icon: LayoutDashboard },
+    ],
+  },
+  {
     title: "Data Engines & Scrapers",
     items: [
       { name: "Omni-Channel Scraper", href: "/omni-scraper", icon: Target, badge: "360°" },
@@ -38,7 +44,6 @@ const navigationGroups = [
   {
     title: "Operations & Fleet",
     items: [
-      { name: "Platform Dashboard", href: "/", icon: LayoutDashboard },
       { name: "Workers & Queue", href: "/jobs", icon: Cpu },
       { name: "Settings & Proxies", href: "/settings", icon: Settings },
     ],
@@ -124,4 +129,3 @@ export function Sidebar() {
     </aside>
   );
 }
-
